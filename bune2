@@ -1,0 +1,89 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+
+#define PORT 8080
+#define BUFFER_SIZE 1024
+
+void handle_client(int client_socket, struct sockaddr_in client_addr) {
+    char buffer[BUFFER_SIZE];
+    socklen_t client_addr_len = sizeof(client_addr);
+
+    while (1) {
+        // Receive message from client
+        int valread = recvfrom(client_socket, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_addr, &client_addr_len);
+        if (valread <= 0) {
+            printf("Connection terminated.\n");
+            break;
+        }
+        printf("Client: %s", buffer);
+
+        // Get message from user
+        printf("You: ");
+        fgets(buffer, BUFFER_SIZE, stdin);
+
+        // Send message
+        sendto(client_socket, buffer, strlen(buffer), 0, (struct sockaddr *)&client_addr, client_addr_len);
+    }
+
+    close(client_socket);
+}
+
+int main() {
+    int server_socket;
+    struct sockaddr_in address, client_addr;
+    int addrlen = sizeof(address);
+
+    // Create server socket
+    if ((server_socket = socket(AF_INET, SOCK_DGRAM, 0)) == 0) {
+        perror("socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Configure server address
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+
+    // Bind server socket
+    if (bind(server_socket, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Waiting for incoming connections...\n");
+
+    while (1) {
+        // Receive message from client
+        char buffer[BUFFER_SIZE];
+        socklen_t client_addr_len = sizeof(client_addr);
+        int valread = recvfrom(server_socket, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_addr, &client_addr_len);
+        if (valread < 0) {
+            perror("recvfrom failed");
+            exit(EXIT_FAILURE);
+        }
+        printf("New connection accepted.\n");
+
+        // Fork a new process
+        pid_t pid = fork();
+
+        if (pid == 0) {  // Child process
+            close(server_socket);  // Close server socket for parent process
+            handle_client(server_socket, client_addr); // Handle client operation
+            exit(EXIT_SUCCESS); // Terminate child process
+        } else if (pid > 0) { // Parent process
+            // Do nothing, continue listening for new connections
+        } else {
+            perror("fork failed");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    close(server_socket);
+
+    return 0;
+}
